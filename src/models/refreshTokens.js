@@ -4,7 +4,7 @@ const {DataTypes} = require("sequelize");
 const RefreshToken = database.define("RefreshToken",{
     id:{
         type:DataTypes.INTEGER,
-        primaryKey:tru,
+        primaryKey:true,
         autoIncrement:true
     },
     userId:{

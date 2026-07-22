@@ -5,10 +5,8 @@ const crypto = require("crypto");
 const { User, RefreshToken} = require("../models");
 const { logger, evn} = require("../config");
 const emailService = require("./email.service");
-const { env } = require("process");
-const { devNull } = require("os");
 
-// signup and account verification functions
+// signup 
 async function signup({userName, email, password}){
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await User.create({
@@ -19,6 +17,7 @@ async function signup({userName, email, password}){
     return user;
 };
 
+// Account verification
 async function sendVerificationEmail(user){
     const {token, hashedToken} = generateToken();
     await user.update({
@@ -26,6 +25,9 @@ async function sendVerificationEmail(user){
         verificationTokenExpiresAt: new Date(Date.now() + 15*60*1000)
     });
     emailService.sendAccountVerificationEmail(user.email, token);
+    return {
+        message: "email verification sent"
+    };
 };
 
 async function  verifyEmail(token) {
@@ -59,7 +61,6 @@ async function resendVerificationEmail(email) {
 }
 
 // Login 
-// Generate Tokens
 function generateAccessToken(user){
     return jwt.sign(
         {
@@ -84,7 +85,6 @@ function generateRefreshToken(user){
         }
     );
 }
-
 async function login({email, password}) {
     const user = await User.findOne({
         where: {email}
@@ -122,8 +122,8 @@ async function refreshAccessToken(refreshToken) {
         },
     });
 
-    if (!storedToken) throwError("Invalid Refreshtoken", 400);
-    if (storedToken.expiresAt < new Date()) throwError("refreshtoken has expired", 400);
+    if (!storedToken) throwError("Invalid Refreshtoken", 401);
+    if (storedToken.expiresAt < new Date()) throwError("refreshtoken has expired", 401);
 
     const payload = jwt.verify(
         refreshToken,
@@ -135,149 +135,166 @@ async function refreshAccessToken(refreshToken) {
     return {accessToken: generateAccessToken(user)};
 }
 
+// Update email, password, and userName
+async function changePassword(email, oldPassword, newPassword) {
+    const user = await User.findOne({
+        where:{email}
+    });
+    if(!user) throwError("User not found", 404);
 
-class AuthService {
-    // Login
-    async login({ email, password }) {
-        const user = await User.findOne({ 
-                where: { email: email } 
-            }
-        );
-        if (!user) this._throwError(`User with email ${email} not found`, 404);
+    const isOldPasswordValid = await bcrypt.compare(oldPassword, user.password);
+    if(!isOldPasswordValid) throwError("Invalid password", 401);
 
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) this._throwError("Invalid password", 401);
+    const newPasswordHashed = await bcrypt.hash(newPassword, 10);
 
-        const accessToken = this.generateAccessToken(user);
-        const refreshToken = this.generateRefreshToken(user);
+    await user.update({
+        password:newPasswordHashed
+    });
 
-        await User_refresh_token.create({
-            user_id: user.id,
-            token: refreshToken,
-            expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) 
-        });
-        return { 
-            accessToken, 
-            refreshToken,
-            user: { 
-                id: user.id, 
-                userName: user.userName, 
-                email 
-            }
-        };
-    }
+    return {
+        message:"Password changed"
+    };
+};
 
-    // Refresh Token
-    async refreshToken(refreshToken) {
-        const token = await User_refresh_token.findOne({ 
-            where: 
-            { 
-                token: refreshToken, 
-                revoked_at: null 
-            } 
-        });
-        if (!token) this._throwError("Invalid refresh token", 401);
-        if (token.expires_at < new Date()) this._throwError("Refresh token expired", 401);
+async function changeUserName(oldUserName, newUserName) {
+    const user = await User.findOne({
+        where:{userName:oldUserName}
+    });
 
-        let decoded;
-        try {
-            decoded = jwt.verify(refreshToken, jwtConfig.refreshToken.secret);
-        } catch {
-            this._throwError("Invalid refresh token", 401);
-        }
+    if(!user) throwError("User not found", 404);
 
-        const user = await User.findByPk(decoded.id);
-        if (!user) this._throwError("User not found", 404);
+    await user.update({
+        userName: newUserName
+    });
 
-        return { accessToken: this.generateAccessToken(user) };
-    }
+    return {
+        message: "User name changed"
+    };
+};
 
-    // Logout
-    async logout(refreshToken) {
-        const token = await User_refresh_token.findOne({ where: { token: refreshToken } });
-        if (token) await token.update({ revoked_at: new Date() });
+async function changeEmail(oldEmail, newEmail) {
+    const user = await User.findOne({
+        where:{email:oldEmail}
+    });
 
-        logger.info("User logged out successfully");
-    }
+    if(!user) throwError("User not found", 404);
 
-    // Forgot Password
-    async forgotPassword(email) {
-        const user = await User.findOne({ where: { email } });
-        if (!user) return;
-
-        const resetToken = crypto.randomBytes(32).toString("hex");
-        const tokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
-
-        await User_password_reset.create({
-            user_id: user.id,
-            token: tokenHash,
-            expires_at: new Date(Date.now() + 5 * 60 * 1000) 
-        });
-
-        await emailService.sendPasswordRecoveryEmail(user.email, resetToken);
-        logger.info(`Password recovery email sent to ${email}`);
-    }
-
-    // Reset Password
-    async resetPassword(token, newPassword) {
-        const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-
-        const resetRecord = await User_password_reset.findOne({ 
-            where: { 
-                token: tokenHash, 
-                used_at: null 
-            } 
-        });
-        if (!resetRecord) this._throwError("Invalid reset token", 400);
-        if (resetRecord.expires_at < new Date()) this._throwError("Reset token expired", 400);
-
-        const user = await User.findByPk(resetRecord.user_id);
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-        await user.update({ 
-            password: hashedPassword 
-        });
-        await resetRecord.update({ 
-            used_at: new Date() 
-        });
-
-        await emailService.sendPasswordResetConfirmationEmail(user.email);
-        logger.info(`Password reset for ${user.email}`);
-    }
-
-    // Delete Account
-    async deleteAccount(userId) {
-        const user = await User.findByPk(userId);
-        if (!user) this._throwError("User not found", 404);
-
-        await User_refresh_token.destroy({ 
-            where:{ 
-                user_id: userId 
-            } 
-        });
-        await User_password_reset.destroy({ 
-            where: 
-            { 
-                user_id: userId 
-            } 
-        });
-        await user.destroy();
-        logger.info(`User deleted account: ${user.email}`);
-    }
-
-    // Error Helper
-    _throwError(message, statusCode) {
-        const err = new Error(message);
-        err.statusCode = statusCode;
-        throw err;
-    }
-
-
-
+    await user.update({
+        email:newEmail
+    });
 }
 
-// Utils
 
+
+// Logout
+async function logout(refreshToken) {
+    const hashedToken = crypto.createHash("sha256").update(refreshToken).digest("hex");
+    const storedToken = await RefreshToken.findOne({
+        where:{
+            tokenHash: hashedToken,
+            revokedAt: null
+        }
+    });
+    
+    if(!storedToken) throwError("Invalid refresh token", 401);
+
+    await storedToken.update({
+        revokedAt: new Date()
+    });
+    
+    return {
+        message: "User logout"
+    };
+}
+// Forgot and reset password
+async function forgotPassword(user) {    
+    const {token, hashedToken} = generateToken();
+    await User.update({
+        resetPasswordToken: hashedToken,
+        resetPasswordTokenExpiresAt: new Date(new Date() +  + 15 * 60 * 1000)
+    });
+
+    emailService.sendPasswordResetEmail(email, token);
+    return {
+        message: "password reset email sent"
+    };
+};
+
+async function resetPassword(token, newPassword) {
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+    const user = await User.findOne({
+        where:{resetPasswordToken: hashedToken}
+    });
+    
+    if(!user) throwError("Invalid token", 400);
+    if(user.resetPasswordTokenExpiresAt < new Date()) throwError("Token has expired", 400);
+
+    const newPasswordHashed = await bcrypt.hash(newPassword, 10);
+    await user.update({
+        password: newPasswordHashed,
+        resetPasswordToken: null,
+        resetPasswordTokenExpiresAt: null
+    });
+    
+    return {
+        message: "Password changed"
+    };
+};
+
+async function resendForgotPassword(email) {
+    const user = await User.findOne({
+        where: { email }
+    });
+
+    if (!user)  throwError("User not found", 404);
+
+    const {token, hashedToken} = generateToken();
+
+    await user.update({
+        resetPasswordToken: hashedToken,
+        resetPasswordTokenExpiresAt: new Date(Date.now() + 15 * 60 * 1000)
+    });
+
+    await emailService.sendPasswordResetEmail(user.email,token);
+
+    return {
+        message: "Password reset email sent"
+    };
+}
+
+// Delete Users
+async function deleteUser(email) {
+    const user = await User.findOne({
+        where:{email}
+    });
+
+    if(!user) throwError("User not found", 404);
+
+    await RefreshToken.destroy({
+        where:{userId:user.id}
+    });
+    await user.destroy();
+
+    return {
+        message: "User Deleted"
+    };
+};
+
+// Get User
+async function getUser(userId) {
+    const user = await User.findByPk(userId);
+    if(!user) throwError("User not found", 404);
+
+    return {
+        id: user.id,
+        userName: user.userName,
+        email: user.email
+    };
+}
+
+
+
+// Utils
 function generateToken(){
     const token = crypto.randomBytes(16).toString("hex");
     const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
