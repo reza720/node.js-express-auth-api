@@ -1,31 +1,33 @@
-const {mail, env} = require("../config");
+const {mailTransporter, env} = require("../config");
 
-const sendPasswordRecoveryEmail = async(email, token)=>{
-    await mail.sendMail({
+const sendPasswordResetEmail = async(email, token)=>{
+    const link = `${env.frontEnd.url}/reset?token=${token}`;
+    await mailTransporter.sendMail({
         from : env.email.from,
         to: email,
-        subject: "forgot password",
+        subject: "Reset Password",
         html: `
-            <h3>Reset Password</h3>
-            <p>Use this link to reset you password</p>
-            <p>${token}</p>
+            <p>Click this link to reset you password</p>
+            <a href="${link}">Reset Password</a>
+            <p>This link will expire in 15 minutes</p>
         `
     });
 };
 
-const sendPasswordResetConfirmationEmail = async (email) =>{
-    await mail.sendMail({
+const sendAccountVerificationEmail = async (email, token) =>{
+    const link = `${env.frontEnd.url}/verify?token=${token}`
+    await mailTransporter.sendMail({
         from: env.email.from,
         to: email,
-        subject: "password reset successful",
+        subject: "Verify Account",
         html: `
-            <h3> Password reset successful</h3>
-            <p>your password has been reset successfully</p>
+            <p>Click this link to verify your email address</p>
+            <a href="${link}">Verify</a>
         `
     });
 };
 
 module.exports = {
-    sendPasswordRecoveryEmail, 
-    sendPasswordResetConfirmationEmail
+    sendPasswordResetEmail,
+    sendAccountVerificationEmail
 };

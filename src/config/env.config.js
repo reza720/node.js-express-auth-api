@@ -12,9 +12,9 @@ const env={
     },
     jwt:{
         accessSecret:process.env.JWT_ACCESS_SECRET,
-        accessSecretExpires:process.env.JWT_ACCESS_EXPIRES,
+        accessSecretExpiresAt:process.env.JWT_ACCESS_EXPIRESAT,
         refreshSecret:process.env.JWT_REFRESH_SECRET,
-        refreshSecretExpires:process.env.JWT_REFRESH_EXPIRES
+        refreshSecretExpiresAt:process.env.JWT_REFRESH_EXPIRESAT
     },
     email:{
         host:process.env.SMTP_HOST,
@@ -23,6 +23,9 @@ const env={
         user:process.env.SMTP_USER,
         password:process.env.SMTP_PASSWORD,
         from:process.env.EMAIL_FROM,
+    },
+    frontEnd:{
+        url:process.env.FRONTEND_URL,
     }
 };
 
